@@ -485,6 +485,7 @@ class HiFTGenerator(nn.Module):
         self.conv_post.apply(init_weights)
         self.reflection_pad = nn.ReflectionPad1d((1, 0))
         self.stft_window = torch.from_numpy(get_window("hann", istft_params["n_fft"], fftbins=True).astype(np.float32))
+        self._stft_window_cache = {}  # Cache for device-specific windows
         self.f0_predictor = f0_predictor
 
     def remove_weight_norm(self):
@@ -501,10 +502,18 @@ class HiFTGenerator(nn.Module):
         for l in self.source_resblocks:
             l.remove_weight_norm()
 
+    def _get_window(self, device):
+        """Get cached window tensor for the specified device."""
+        device_key = str(device)
+        if device_key not in self._stft_window_cache:
+            self._stft_window_cache[device_key] = self.stft_window.to(device)
+        return self._stft_window_cache[device_key]
+
     def _stft(self, x):
         spec = torch.stft(
             x,
-            self.istft_params["n_fft"], self.istft_params["hop_len"], self.istft_params["n_fft"], window=self.stft_window.to(x.device),
+            self.istft_params["n_fft"], self.istft_params["hop_len"], self.istft_params["n_fft"], 
+            window=self._get_window(x.device),
             return_complex=True)
         spec = torch.view_as_real(spec)  # [B, F, TT, 2]
         return spec[..., 0], spec[..., 1]
@@ -514,20 +523,24 @@ class HiFTGenerator(nn.Module):
         real = magnitude * torch.cos(phase)
         img = magnitude * torch.sin(phase)
         
-        # MPS doesn't fully support istft (aten::unfold_backward), so we need to run it on CPU
-        # to avoid NaN values from mixed device computation
+        # MPS doesn't fully support istft (aten::unfold_backward), so we run on CPU
+        # Use cached window to avoid repeated transfers
         original_device = magnitude.device
         if original_device.type == 'mps':
             real = real.cpu()
             img = img.cpu()
-            window = self.stft_window.cpu()
+            window = self._get_window(torch.device('cpu'))
         else:
-            window = self.stft_window.to(magnitude.device)
+            window = self._get_window(real.device)
         
-        inverse_transform = torch.istft(torch.complex(real, img), self.istft_params["n_fft"], self.istft_params["hop_len"],
-                                        self.istft_params["n_fft"], window=window)
+        inverse_transform = torch.istft(
+            torch.complex(real, img), 
+            self.istft_params["n_fft"], 
+            self.istft_params["hop_len"],
+            self.istft_params["n_fft"], 
+            window=window
+        )
         
-        # Move back to original device if needed
         if original_device.type == 'mps':
             inverse_transform = inverse_transform.to(original_device)
         
@@ -584,7 +597,10 @@ class HiFTGenerator(nn.Module):
         return generated_speech, f0
 
     @torch.inference_mode()
-    def inference(self, speech_feat: torch.Tensor, cache_source: torch.Tensor = torch.zeros(1, 1, 0)) -> torch.Tensor:
+    def inference(self, speech_feat: torch.Tensor = None, cache_source: torch.Tensor = torch.zeros(1, 1, 0), mel: torch.Tensor = None) -> torch.Tensor:
+        # Support both 'speech_feat' and 'mel' parameter names for compatibility
+        if mel is not None:
+            speech_feat = mel
         # mel->f0
         f0 = self.f0_predictor(speech_feat)
         # f0->source

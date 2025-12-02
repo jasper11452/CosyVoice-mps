@@ -16,7 +16,6 @@
 # Modified from ESPnet(https://github.com/espnet/espnet)
 """Unility functions for Transformer."""
 
-import queue
 import random
 from typing import List
 
@@ -154,7 +153,7 @@ def set_all_random_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    # MPS doesn't need cuda seed
 
 
 def mask_to_bias(mask: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
@@ -179,28 +178,6 @@ def mask_to_bias(mask: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     # NOTE: Using -1e4 for MPS compatibility. The original -1e10 can cause
     # numerical issues on Apple Silicon. -1e4 is still large enough that
     # exp(-1e4) ≈ 0, effectively masking the attention.
-    # For float16, -1e4 is safely within range (float16 min is ~-65504)
-    if mask.device.type == 'mps':
-        mask_value = -1.0e+4
-    else:
-        mask_value = -1.0e+10
+    mask_value = -1.0e+4
     mask = (1.0 - mask) * mask_value
     return mask
-
-
-class TrtContextWrapper:
-    def __init__(self, trt_engine, trt_concurrent=1, device='cuda:0'):
-        self.trt_context_pool = queue.Queue(maxsize=trt_concurrent)
-        self.trt_engine = trt_engine
-        for _ in range(trt_concurrent):
-            trt_context = trt_engine.create_execution_context()
-            trt_stream = torch.cuda.stream(torch.cuda.Stream(device))
-            assert trt_context is not None, 'failed to create trt context, maybe not enough CUDA memory, try reduce current trt concurrent {}'.format(trt_concurrent)
-            self.trt_context_pool.put([trt_context, trt_stream])
-        assert self.trt_context_pool.empty() is False, 'no avaialbe estimator context'
-
-    def acquire_estimator(self):
-        return self.trt_context_pool.get(), self.trt_engine
-
-    def release_estimator(self, context, stream):
-        self.trt_context_pool.put([context, stream])
