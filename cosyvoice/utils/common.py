@@ -158,13 +158,33 @@ def set_all_random_seed(seed):
 
 
 def mask_to_bias(mask: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    """Convert boolean mask to attention bias.
+    
+    Args:
+        mask: Boolean tensor where True = attend, False = mask out
+        dtype: Target dtype for the output
+        
+    Returns:
+        Attention bias tensor where masked positions have large negative values
+        
+    Note:
+        For MPS compatibility, we use -1e4 instead of -1e10 as the mask value.
+        This is sufficient to effectively zero out attention weights after softmax
+        while avoiding numerical issues on MPS.
+    """
     assert mask.dtype == torch.bool
     assert dtype in [torch.float32, torch.bfloat16, torch.float16]
     mask = mask.to(dtype)
     # attention mask bias
-    # NOTE(Mddct): torch.finfo jit issues
-    #     chunk_masks = (1.0 - chunk_masks) * torch.finfo(dtype).min
-    mask = (1.0 - mask) * -1.0e+10
+    # NOTE: Using -1e4 for MPS compatibility. The original -1e10 can cause
+    # numerical issues on Apple Silicon. -1e4 is still large enough that
+    # exp(-1e4) ≈ 0, effectively masking the attention.
+    # For float16, -1e4 is safely within range (float16 min is ~-65504)
+    if mask.device.type == 'mps':
+        mask_value = -1.0e+4
+    else:
+        mask_value = -1.0e+10
+    mask = (1.0 - mask) * mask_value
     return mask
 
 

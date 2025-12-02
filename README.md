@@ -1,5 +1,36 @@
 [![SVG Banners](https://svg-banners.vercel.app/api?type=origin&text1=CosyVoice🤠&text2=Text-to-Speech%20💖%20Large%20Language%20Model&width=800&height=210)](https://github.com/Akshay090/svg-banners)
 
+## 🍎 Apple Silicon (MPS) Fork
+
+This is a fork of the official [CosyVoice](https://github.com/FunAudioLLM/CosyVoice) repository, modified to support **Apple Silicon GPU acceleration** via Metal Performance Shaders (MPS).
+
+### What's Changed
+
+- Modified code to enable MPS (Metal Performance Shaders) backend for inference on Apple Silicon Macs (M1/M2/M3/M4 chips)
+- Significantly faster inference compared to CPU-only mode
+- No CUDA required - runs natively on macOS with Apple Silicon
+
+### Quick Start for macOS
+
+```bash
+# Clone this repo
+git clone https://github.com/jasper11452/CosyVoice-mps.git
+cd CosyVoice-mps
+
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Download pretrained models (see Model download section below)
+```
+
+> **Note**: This fork is specifically optimized for Apple Silicon. For NVIDIA GPU support, please use the [official repository](https://github.com/FunAudioLLM/CosyVoice).
+
+---
+
 ## 👉🏻 CosyVoice 👈🏻
 
 **CosyVoice 3.0**: [Demos](https://funaudiollm.github.io/cosyvoice3/); [Paper](https://arxiv.org/abs/2505.17589); [CV3-Eval](https://github.com/FunAudioLLM/CV3-Eval)

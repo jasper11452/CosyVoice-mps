@@ -22,6 +22,14 @@ from matcha.models.components.decoder import SinusoidalPosEmb, Block1D, ResnetBl
 from matcha.models.components.transformer import BasicTransformerBlock
 
 
+
+class SafeMish(nn.Module):
+    def forward(self, x):
+        if x.device.type == 'mps':
+            return x * torch.tanh(torch.logaddexp(x, torch.zeros_like(x)))
+        return torch.nn.functional.mish(x)
+
+
 class Transpose(torch.nn.Module):
     def __init__(self, dim0: int, dim1: int):
         super().__init__()
@@ -70,7 +78,7 @@ class CausalBlock1D(Block1D):
             Transpose(1, 2),
             nn.LayerNorm(dim_out),
             Transpose(1, 2),
-            nn.Mish(),
+            SafeMish(),
         )
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

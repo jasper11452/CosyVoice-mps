@@ -513,8 +513,24 @@ class HiFTGenerator(nn.Module):
         magnitude = torch.clip(magnitude, max=1e2)
         real = magnitude * torch.cos(phase)
         img = magnitude * torch.sin(phase)
+        
+        # MPS doesn't fully support istft (aten::unfold_backward), so we need to run it on CPU
+        # to avoid NaN values from mixed device computation
+        original_device = magnitude.device
+        if original_device.type == 'mps':
+            real = real.cpu()
+            img = img.cpu()
+            window = self.stft_window.cpu()
+        else:
+            window = self.stft_window.to(magnitude.device)
+        
         inverse_transform = torch.istft(torch.complex(real, img), self.istft_params["n_fft"], self.istft_params["hop_len"],
-                                        self.istft_params["n_fft"], window=self.stft_window.to(magnitude.device))
+                                        self.istft_params["n_fft"], window=window)
+        
+        # Move back to original device if needed
+        if original_device.type == 'mps':
+            inverse_transform = inverse_transform.to(original_device)
+        
         return inverse_transform
 
     def decode(self, x: torch.Tensor, s: torch.Tensor = torch.zeros(1, 1, 0)) -> torch.Tensor:
